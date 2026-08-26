@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paperGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#f0f0f0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 文件阴影 -->
+  <path d="M120 80 L120 432 Q120 440 128 440 L384 440 Q392 440 392 432 L392 200 L280 80 Z" fill="rgba(0,0,0,0.15)" transform="translate(4,4)"/>
+
+  <!-- 文件主体 -->
+  <path d="M120 80 L120 432 Q120 440 128 440 L384 440 Q392 440 392 432 L392 200 L280 80 Z" fill="url(#paperGradient)" stroke="#d0d0d0" stroke-width="2"/>
+
+  <!-- 文件折角 -->
+  <path d="M280 80 L280 136 Q280 144 288 144 L344 144 L392 200 L392 200 L280 80 Z" fill="#e8e8e8" stroke="#d0d0d0" stroke-width="2"/>
+
+  <!-- 页面内框线 -->
+  <rect x="140" y="120" width="232" height="280" rx="2" fill="none" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- MD 文字 -->
+  <text x="256" y="310" font-family="Helvetica, Arial, sans-serif" font-size="128" font-weight="bold" fill="#0066cc" text-anchor="middle">MD</text>
+</svg>
