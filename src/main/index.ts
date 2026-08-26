@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { Logger } from './logger';
 import { initDatabase, addRecentFile, getRecentFiles, getAppState, setAppState, getWindowBounds, saveWindowBounds } from './database';
+import { t, normalizeLang } from '../shared/i18n';
 
 const IPC_CHANNELS = {
   FILE_OPEN: 'file:open',
@@ -15,23 +16,36 @@ const IPC_CHANNELS = {
 
 const logger = Logger.getInstance();
 
-let mainWindow: BrowserWindow | null = null;
-let rendererReady = false;
+// ── 多窗口状态 ─────────────────────────────────────────
+/** 允许直接关闭（已完成未保存检查）的窗口 */
+const closingAllowed = new Set<BrowserWindow>();
+/** 创建后需弹「保存对话框选新文件路径」的窗口（新建流程） */
+const promptSaveWindows = new Set<BrowserWindow>();
+/** 退出确认队列：逐窗口串行检查未保存 */
+let quitPendingWindows: BrowserWindow[] = [];
+/** 退出确认流程进行中（防 before-quit 重入重复弹框） */
+let quitInProgress = false;
+
 let pendingFile: { path: string; content: string; name: string } | null = null;
 let isQuitting = false;
-let quitRequested = false;
 
-function createWindow() {
-  logger.info('App', 'Creating main window');
+/** 取当前应接收菜单/文件事件的窗口（焦点优先，回退第一个） */
+function getFocusedWindow(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+}
 
-  // 恢复上次窗口位置大小（无记录时用默认值）
+function createWindow(opts?: { promptSaveAs?: boolean }) {
+  logger.info('App', 'Creating window');
+
+  // 恢复上次窗口位置大小（无记录时用默认值）；多窗口级联偏移避免完全重叠
   const savedBounds = getWindowBounds();
+  const cascade = BrowserWindow.getAllWindows().length * 26;
 
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: savedBounds?.width ?? 1000,
     height: savedBounds?.height ?? 700,
-    x: savedBounds?.x,
-    y: savedBounds?.y,
+    x: savedBounds?.x !== undefined ? savedBounds.x + cascade : undefined,
+    y: savedBounds?.y !== undefined ? savedBounds.y + cascade : undefined,
     minWidth: 800,
     minHeight: 500,
     titleBarStyle: 'hiddenInset',
@@ -42,62 +56,66 @@ function createWindow() {
     },
   });
 
+  if (opts?.promptSaveAs) {
+    promptSaveWindows.add(win);
+  }
+
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    win.loadURL('http://localhost:5173');
+    win.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html')).catch((err) => {
+    win.loadFile(path.join(__dirname, '../../renderer/index.html')).catch((err) => {
       logger.error('Window', `loadFile failed: ${err?.message || err}`);
     });
   }
 
-  mainWindow.webContents.on('did-finish-load', () => {
+  win.webContents.on('did-finish-load', () => {
     logger.info('Window', 'Web contents finished loading');
   });
 
   // 诊断：页面加载失败 / 渲染进程异常退出
-  mainWindow.webContents.on('did-fail-load', (_e: any, code: number, desc: string, url: string) => {
+  win.webContents.on('did-fail-load', (_e: any, code: number, desc: string, url: string) => {
     logger.error('Window', `did-fail-load: code=${code} desc=${desc} url=${url}`);
   });
-  mainWindow.webContents.on('preload-error', (_e: any, preloadPath: string, err: any) => {
+  win.webContents.on('preload-error', (_e: any, preloadPath: string, err: any) => {
     logger.error('Window', `preload-error: ${preloadPath} ${err?.message || err}`);
   });
 
-  mainWindow.on('close', (e) => {
+  win.on('close', (e) => {
     logger.info('Window', 'Window close requested');
-    // 保存窗口位置大小（窗口销毁前）
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      saveWindowBounds(mainWindow.getBounds());
+    // 保存窗口位置大小（窗口销毁前；多窗口下最后关闭者胜出）
+    if (!win.isDestroyed()) {
+      saveWindowBounds(win.getBounds());
     }
-    if (isQuitting) {
+    if (isQuitting || closingAllowed.has(win)) {
       return;
     }
-    
+
     e.preventDefault();
-    
-    mainWindow?.webContents.send(IPC_CHANNELS.CHECK_UNSAVED);
+
+    // 该窗口独立走未保存检查
+    win.webContents.send(IPC_CHANNELS.CHECK_UNSAVED);
   });
 
-  mainWindow.on('closed', () => {
-    logger.info('Window', 'Main window closed');
-    mainWindow = null;
-    rendererReady = false;
-    isQuitting = false;
+  win.on('closed', () => {
+    logger.info('Window', 'Window closed');
+    closingAllowed.delete(win);
+    promptSaveWindows.delete(win);
   });
 }
 
-function sendFileToRenderer(file: { path: string; content: string; name: string }) {
+function sendFileToWindow(win: BrowserWindow, file: { path: string; content: string; name: string }) {
   logger.info('File', `Opening file: ${file.path}`);
   addRecentFile(file.path, file.name);
   refreshMenu();
-  mainWindow?.webContents.send('file:opened', file);
+  win.webContents.send('file:opened', file);
 }
 
-function showMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+function showWindow(win: BrowserWindow) {
+  if (win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 }
 
 function openFileWhenReady(file: { path: string; content: string; name: string }) {
@@ -107,16 +125,18 @@ function openFileWhenReady(file: { path: string; content: string; name: string }
     return;
   }
 
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    // 新建窗口，渲染进程 ready 后由 app:ready 处理器带出 pendingFile
     createWindow();
     return;
   }
 
-  showMainWindow();
-  if (rendererReady) {
-    sendFileToRenderer(file);
-    pendingFile = null;
-  }
+  // 已有窗口必已完成渲染，直接发给焦点窗口
+  const win = getFocusedWindow();
+  if (!win) return;
+  showWindow(win);
+  sendFileToWindow(win, file);
+  pendingFile = null;
 }
 
 function registerIpcHandlers() {
@@ -139,12 +159,13 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.FILE_OPEN, async () => {
+  ipcMain.handle(IPC_CHANNELS.FILE_OPEN, async (event) => {
     logger.info('IPC', 'File open requested');
-    const result = await dialog.showOpenDialog(mainWindow!, {
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? getFocusedWindow();
+    const result = await dialog.showOpenDialog(parent!, {
       properties: ['openFile'],
       filters: [
-        { name: '所有文件', extensions: ['*'] },
+        { name: t(normalizeLang(getAppState('language')), 'allFiles'), extensions: ['*'] },
         { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
       ],
     });
@@ -159,10 +180,12 @@ function registerIpcHandlers() {
     return null;
   });
 
-  ipcMain.handle(IPC_CHANNELS.FILE_SAVE, async (_event, filePath: string, content: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_SAVE, async (event, filePath: string, content: string) => {
     logger.info('IPC', 'File save requested');
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? getFocusedWindow();
     if (!filePath) {
-      const result = await dialog.showSaveDialog(mainWindow!, {
+      const result = await dialog.showSaveDialog(parent!, {
+        defaultPath: 'Untitled.md',
         filters: [
           { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
         ],
@@ -179,11 +202,13 @@ function registerIpcHandlers() {
     return { path: filePath, name: path.basename(filePath) };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FILE_SAVE_AS, async (_event, content: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_SAVE_AS, async (event, content: string) => {
     logger.info('IPC', 'File save as requested');
-    const result = await dialog.showSaveDialog(mainWindow!, {
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? getFocusedWindow();
+    const result = await dialog.showSaveDialog(parent!, {
+      defaultPath: 'Untitled.md',
       filters: [
-        { name: '所有文件', extensions: ['*'] },
+        { name: t(normalizeLang(getAppState('language')), 'allFiles'), extensions: ['*'] },
         { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
       ],
     });
@@ -201,66 +226,128 @@ function registerIpcHandlers() {
   ipcMain.handle('app:get-view-mode', () => getAppState('viewMode'));
   ipcMain.on('app:set-view-mode', (_event, mode: string) => setAppState('viewMode', mode));
 
-  ipcMain.handle(IPC_CHANNELS.SHOW_UNSAVED_DIALOG, async (_event, fileName: string, forQuit = false) => {
+  // 界面语言持久化（切换时同步重建菜单）
+  ipcMain.handle('app:get-language', () => getAppState('language'));
+  ipcMain.on('app:set-language', (_event, lang: string) => {
+    const normalized = normalizeLang(lang);
+    setAppState('language', normalized);
+    createMenu();
+    logger.info('App', `Language changed: ${normalized}`);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SHOW_UNSAVED_DIALOG, async (event, fileName: string, forQuit = false) => {
     logger.info('IPC', 'Unsaved dialog requested');
-    const result = await dialog.showMessageBox(mainWindow!, {
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? getFocusedWindow();
+    const lang = normalizeLang(getAppState('language'));
+    const result = await dialog.showMessageBox(parent!, {
       type: 'warning',
-      buttons: forQuit ? ['是', '否', '取消'] : ['保存并关闭', '不保存并关闭', '取消'],
+      buttons: forQuit
+        ? [t(lang, 'unsavedYes'), t(lang, 'unsavedNo'), t(lang, 'unsavedCancel')]
+        : [t(lang, 'unsavedSave'), t(lang, 'unsavedDiscard'), t(lang, 'unsavedCancel')],
       defaultId: 0,
       cancelId: 2,
-      title: '未保存的更改',
-      message: `“${fileName}”包含未保存的更改`,
-      detail: forQuit ? '是否需要保存后退出？' : '您想要保存这些更改吗？',
+      title: t(lang, 'unsavedTitle'),
+      message: `“${fileName}” ${t(lang, 'unsavedDetail')}`,
+      detail: forQuit ? t(lang, 'unsavedForQuitDetail') : t(lang, 'unsavedDetail'),
     });
     const choice = ['save', 'discard', 'cancel'][result.response];
     logger.info('Dialog', `User choice: ${choice}`);
     return choice;
   });
 
-  ipcMain.on('app:ready', () => {
-    logger.info('App', 'Renderer is ready');
-    rendererReady = true;
+  // 新建流程：渲染进程请求新开一个应用窗口
+  ipcMain.on('window:new', (event) => {
+    const source = BrowserWindow.fromWebContents(event.sender);
+    logger.info('IPC', `New window requested from: ${source?.id ?? 'unknown'}`);
+    createWindow({ promptSaveAs: true });
+  });
+
+  ipcMain.on('app:ready', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    logger.info('App', `Renderer is ready (window ${win.id})`);
+
+    if (promptSaveWindows.has(win)) {
+      // 新建流程：就绪后触发「弹保存对话框选新文件路径」
+      promptSaveWindows.delete(win);
+      if (pendingFile) {
+        sendFileToWindow(win, pendingFile);
+        pendingFile = null;
+      } else {
+        win.webContents.send('new-file-prompt');
+      }
+      return;
+    }
+
     if (pendingFile) {
-      sendFileToRenderer(pendingFile);
+      sendFileToWindow(win, pendingFile);
       pendingFile = null;
     }
   });
 
-  ipcMain.on('check:unsaved:response', (_event, result: 'close' | 'cancel') => {
+  ipcMain.on('check:unsaved:response', (event, result: 'close' | 'cancel') => {
     logger.info('IPC', `Check unsaved response: ${result}`);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
     if (result === 'close') {
-      isQuitting = true;
-      mainWindow?.close();
+      closingAllowed.add(win);
+      win.close();
     }
   });
 
-  ipcMain.on('check-unsaved-for-quit:response', async (_event, result: 'save' | 'discard' | 'cancel') => {
+  ipcMain.on('check-unsaved-for-quit:response', (event, result: 'save' | 'discard' | 'cancel') => {
     logger.info('IPC', `Check unsaved for quit response: ${result}`);
+    const win = BrowserWindow.fromWebContents(event.sender);
     if (result === 'cancel') {
-      quitRequested = false;
-      return;
-    }
-    if (result === 'save') {
-      // 让渲染进程保存，保存后再退出
-      // 我们等待渲染进程处理保存，渲染进程保存成功后会发送 'save-done-for-quit'
+      // 用户取消：中止整个退出流程
+      quitPendingWindows = [];
+      quitInProgress = false;
       return;
     }
     if (result === 'discard') {
-      quitRequested = false;
-      isQuitting = true;
-      app.quit();
+      if (win && !win.isDestroyed()) closingAllowed.add(win);
+      processNextQuitWindow();
     }
+    // 'save'：等待该窗口 save-done-for-quit 后再继续下一个
   });
 
-  ipcMain.on('save-done-for-quit', () => {
+  ipcMain.on('save-done-for-quit', (event) => {
     logger.info('IPC', 'Save done for quit');
-    quitRequested = false;
-    isQuitting = true;
-    app.quit();
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) closingAllowed.add(win);
+    processNextQuitWindow();
   });
 }
 
+/** 退出队列：逐窗口串行确认，全部完成后真正退出 */
+function processNextQuitWindow() {
+  while (quitPendingWindows.length > 0) {
+    const win = quitPendingWindows.shift()!;
+    if (win.isDestroyed()) continue; // 过程中已被单独关闭的窗口直接跳过
+    win.webContents.send('check-unsaved-for-quit');
+    return;
+  }
+  finishQuit();
+}
+
+function finishQuit() {
+  logger.info('App', 'All windows confirmed, quitting');
+  quitInProgress = false;
+  isQuitting = true;
+  for (const win of BrowserWindow.getAllWindows()) {
+    closingAllowed.add(win);
+  }
+  app.quit();
+}
+
 function createMenu() {
+  const lang = normalizeLang(getAppState('language'));
+
+  /** 菜单事件发给焦点窗口（无焦点时回退第一个窗口） */
+  const sendToFocused = (channel: string) => {
+    getFocusedWindow()?.webContents.send(channel);
+  };
+
   // 「最近打开」子菜单（数据来自 SQLite，最多 20 条）
   const recents = getRecentFiles();
   const recentItems: MenuItemConstructorOptions[] = recents.length > 0
@@ -275,22 +362,22 @@ function createMenu() {
           }
         },
       }))
-    : [{ label: '（暂无记录）', enabled: false }];
+    : [{ label: t(lang, 'noRecents'), enabled: false }];
 
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
       submenu: [
-        { role: 'about', label: '关于 Markdown Maker' },
+        { role: 'about', label: t(lang, 'menuAbout') },
         { type: 'separator' },
-        { role: 'services' },
+        { role: 'services', label: t(lang, 'menuServices') },
         { type: 'separator' },
-        { role: 'hide', label: '隐藏 Markdown Maker' },
-        { role: 'hideOthers', label: '隐藏其他' },
-        { role: 'unhide', label: '显示全部' },
+        { role: 'hide', label: t(lang, 'menuHide') },
+        { role: 'hideOthers', label: t(lang, 'menuHideOthers') },
+        { role: 'unhide', label: t(lang, 'menuUnhide') },
         { type: 'separator' },
-        { 
-          label: '退出', 
+        {
+          label: t(lang, 'menuQuit'),
           accelerator: 'Cmd+Q',
           click: () => {
             logger.info('App', 'Quit requested via menu');
@@ -300,51 +387,51 @@ function createMenu() {
       ],
     },
     {
-      label: '文件',
+      label: t(lang, 'menuFile'),
       submenu: [
         {
-          label: '新建',
+          label: t(lang, 'new'),
           accelerator: 'Cmd+N',
-          click: () => mainWindow?.webContents.send('menu:new'),
+          click: () => sendToFocused('menu:new'),
         },
         {
-          label: '打开',
+          label: t(lang, 'open'),
           accelerator: 'Cmd+O',
-          click: () => mainWindow?.webContents.send('menu:open'),
+          click: () => sendToFocused('menu:open'),
         },
         {
-          label: '最近打开',
+          label: t(lang, 'menuRecent'),
           submenu: recentItems,
         },
         { type: 'separator' },
         {
-          label: '保存',
+          label: t(lang, 'save'),
           accelerator: 'Cmd+S',
-          click: () => mainWindow?.webContents.send('menu:save'),
+          click: () => sendToFocused('menu:save'),
         },
         {
-          label: '另存为',
+          label: t(lang, 'saveAs'),
           accelerator: 'Cmd+Shift+S',
-          click: () => mainWindow?.webContents.send('menu:save-as'),
+          click: () => sendToFocused('menu:save-as'),
         },
         { type: 'separator' },
         {
-          label: '关闭',
+          label: t(lang, 'closeFile'),
           accelerator: 'Cmd+W',
-          click: () => mainWindow?.webContents.send('menu:close-tab'),
+          click: () => sendToFocused('menu:close-tab'),
         },
       ],
     },
     {
-      label: '编辑',
+      label: t(lang, 'menuEdit'),
       submenu: [
-        { role: 'undo', label: '撤销' },
-        { role: 'redo', label: '重做' },
+        { role: 'undo', label: t(lang, 'undo') },
+        { role: 'redo', label: t(lang, 'redo') },
         { type: 'separator' },
-        { role: 'cut', label: '剪切' },
-        { role: 'copy', label: '复制' },
-        { role: 'paste', label: '粘贴' },
-        { role: 'selectAll', label: '全选' },
+        { role: 'cut', label: t(lang, 'cut') },
+        { role: 'copy', label: t(lang, 'copy') },
+        { role: 'paste', label: t(lang, 'paste') },
+        { role: 'selectAll', label: t(lang, 'selectAll') },
       ],
     },
   ];
@@ -376,8 +463,8 @@ app.whenReady().then(() => {
   initDatabase();
   registerIpcHandlers();
   createMenu();
-  createWindow();
 
+  // 命令行文件参数（须在创建首窗口前解析，决定首窗口是否走新建流程）
   const mdArg = process.argv.find((arg) => {
     return (arg.endsWith('.md') || arg.endsWith('.markdown') || arg.endsWith('.txt'))
       && fs.existsSync(arg);
@@ -392,10 +479,14 @@ app.whenReady().then(() => {
     }
   }
 
+  // 直接启动（无文件）时首窗口等于「新建」：弹保存对话框选新文件路径
+  createWindow({ promptSaveAs: !pendingFile });
+
   app.on('activate', () => {
     logger.info('App', 'App activated');
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      // Dock 重新激活且无窗口：等同直接打开应用（新建流程）
+      createWindow({ promptSaveAs: true });
     }
   });
 });
@@ -413,20 +504,23 @@ app.on('before-quit', (e) => {
     // 已经设置了 isQuitting，允许退出
     return;
   }
-  if (!mainWindow || mainWindow.isDestroyed()) {
+
+  const windows = BrowserWindow.getAllWindows();
+  if (windows.length === 0) {
     isQuitting = true;
     return;
   }
-  if (quitRequested) {
-    // 已有退出请求在处理中，继续等待渲染进程回复
-    e.preventDefault();
+
+  // 阻止默认退出行为，逐窗口串行确认未保存
+  e.preventDefault();
+
+  if (quitInProgress) {
+    // 已有退出确认流程在进行中，等待各窗口回复即可
     return;
   }
-  // 阻止默认退出行为
-  e.preventDefault();
-  quitRequested = true;
-  // 发送消息给渲染进程检查未保存
-  mainWindow?.webContents.send('check-unsaved-for-quit');
+  quitInProgress = true;
+  quitPendingWindows = [...windows];
+  processNextQuitWindow();
 });
 
 app.on('quit', () => {

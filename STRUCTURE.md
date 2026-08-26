@@ -6,7 +6,7 @@
 markdown-maker/
 ├── package.json             # 项目配置
 ├── tsconfig.json            # TypeScript 主配置
-├── tsconfig.main.json       # 主进程 TypeScript 配置
+├── tsconfig.main.json       # 主进程 TypeScript 配置（rootDir=src，含 src/shared，产物入口 dist/main/main/index.js）
 ├── vite.config.ts           # 渲染进程打包配置
 ├── electron-builder.yml     # Electron 打包配置
 ├── scripts/
@@ -32,7 +32,8 @@ markdown-maker/
 │   │       └── logger.ts    # 渲染进程日志工具
 │   └── shared/              # 共享类型和常量
 │       ├── types.ts         # 类型定义
-│       └── constants.ts     # 常量
+│       ├── constants.ts     # 常量
+│       └── i18n.ts          # 中英文字典 + t() 翻译函数（主/渲染进程共用）
 ├── assets/
 │   ├── icon.svg             # 应用图标源文件
 │   └── icon.icns            # macOS 应用图标
@@ -89,8 +90,9 @@ markdown-maker/
 
 - **editorStore.ts**：
   - 使用 Zustand 管理状态
-  - 存储：content / originalContent / currentFile / viewMode 等
+  - 存储：content / originalContent / currentFile / viewMode / language 等
   - `originalContent` 用于准确判断修改状态
+  - `language` 为界面语言（zh/en），由语言按钮切换，主进程持久化
 
 - **MarkdownEditor.tsx**：
   - 基于 CodeMirror 6 的编辑器
@@ -109,6 +111,9 @@ markdown-maker/
 | menu:* | main → renderer | 菜单事件 |
 | check:unsaved | main → renderer | 检查未保存内容（窗口关闭时）|
 | check:unsaved:response | renderer → main | 检查结果 |
+| app:get-language / app:set-language | 双向 | 界面语言读取/切换（切换时主进程重建菜单） |
+| window:new | renderer → main | 请求新开一个应用窗口（新建流程入口） |
+| new-file-prompt | main → renderer | 新窗口就绪后触发弹保存对话框选新文件路径 |
 | log | renderer → main | 日志转发到主进程 |
 
 ## 三、关键流程
@@ -119,17 +124,31 @@ markdown-maker/
 3. 通过 IPC 发送到渲染进程
 4. 渲染进程更新状态并显示
 
-### 3.2 窗口关闭流程（含未保存检查）
-1. 用户点击关闭按钮 → 主进程 `close` 事件触发
-2. 拦截默认关闭，发送 `check:unsaved` 到渲染进程
-3. 渲染进程检查是否有未保存内容
+### 3.2 窗口关闭流程（含未保存检查，多窗口各自独立）
+1. 用户点击某窗口关闭按钮 → 该窗口 `close` 事件触发
+2. 拦截默认关闭，发送 `check:unsaved` 到**该窗口**的渲染进程
+3. 渲染进程检查该窗口自己的未保存内容
 4. 有修改时弹出对话框询问用户
 5. 根据用户选择：
    - 保存 → 保存后关闭
    - 不保存 → 直接关闭
    - 取消 → 保持窗口打开
 
-### 3.3 打包配置（electron-builder.yml）
+### 3.3 新建流程（多窗口）
+1. 用户点「新建」（工具栏/Cmd+N/菜单）→ 渲染进程发送 `window:new`
+2. 主进程 `createWindow({ promptSaveAs: true })` 新开窗口（位置级联偏移）
+3. 新窗口渲染就绪（`app:ready`）→ 主进程发 `new-file-prompt`
+4. 新窗口自动触发「另存为」弹保存对话框选新文件路径
+5. 选定路径 → 创建空文件并绑定；取消 → 保留为空白未命名文档
+6. 直接启动应用（无文件参数）时首窗口同样走此流程
+
+### 3.4 退出流程（多窗口串行确认）
+1. Cmd+Q → `before-quit` 拦截，全部窗口入队
+2. 逐窗口发送 `check-unsaved-for-quit`，串行确认
+3. 任一窗口「取消」→ 中止退出
+4. 全部确认后统一放行关闭并退出
+
+### 3.5 打包配置（electron-builder.yml）
 - 配置文件关联，支持 .md/.markdown/.txt
 - 输出为 DMG 和 ZIP 格式
 - 自动生成图标

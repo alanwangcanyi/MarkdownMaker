@@ -14,9 +14,13 @@ export interface ElectronAPI {
   onMenuSave: (callback: () => void) => () => void;
   onMenuSaveAs: (callback: () => void) => () => void;
   onMenuCloseTab: (callback: () => void) => () => void;
+  newWindow: () => void;
+  onNewFilePrompt: (callback: () => void) => () => void;
   appReady: () => void;
   getViewMode: () => Promise<string | null>;
   setViewMode: (mode: string) => void;
+  getLanguage: () => Promise<string | null>;
+  setLanguage: (lang: string) => void;
 }
 
 declare global {

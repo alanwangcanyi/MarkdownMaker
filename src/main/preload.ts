@@ -67,7 +67,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('menu:close-tab', listener);
     return () => ipcRenderer.removeListener('menu:close-tab', listener);
   },
+  newWindow: () => ipcRenderer.send('window:new'),
+  onNewFilePrompt: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('new-file-prompt', listener);
+    return () => ipcRenderer.removeListener('new-file-prompt', listener);
+  },
   appReady: () => ipcRenderer.send('app:ready'),
   getViewMode: () => ipcRenderer.invoke('app:get-view-mode') as Promise<string | null>,
   setViewMode: (mode: string) => ipcRenderer.send('app:set-view-mode', mode),
+  getLanguage: () => ipcRenderer.invoke('app:get-language') as Promise<string | null>,
+  setLanguage: (lang: string) => ipcRenderer.send('app:set-language', lang),
 });

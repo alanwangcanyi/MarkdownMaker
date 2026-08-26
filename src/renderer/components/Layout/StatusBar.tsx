@@ -1,20 +1,22 @@
 import React from 'react';
 import { useEditorStore } from '../../stores/editorStore';
+import { t } from '../../../shared/i18n';
 
 export const StatusBar: React.FC = () => {
   const lineCount = useEditorStore(s => s.lineCount);
   const wordCount = useEditorStore(s => s.wordCount);
   const viewMode = useEditorStore(s => s.viewMode);
+  const language = useEditorStore(s => s.language);
 
   const modeLabel: Record<string, string> = {
-    edit: '编辑模式',
-    preview: '阅读模式',
-    split: '分栏模式',
+    edit: t(language, 'editMode'),
+    preview: t(language, 'previewMode'),
+    split: t(language, 'splitMode'),
   };
 
   return (
     <div className="statusbar">
-      <span>行 {lineCount} / 字数 {wordCount}</span>
+      <span>{t(language, 'lines')} {lineCount} / {t(language, 'words')} {wordCount}</span>
       <span>{modeLabel[viewMode]}</span>
     </div>
   );

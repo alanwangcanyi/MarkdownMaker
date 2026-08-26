@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { redo, selectAll, undo } from '@codemirror/commands';
 import { useEditorStore } from '../../stores/editorStore';
 import { ViewMode } from '../../../shared/types';
+import { t, Lang } from '../../../shared/i18n';
 
 interface ToolbarProps {
   onNew: () => void;
@@ -22,16 +23,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const setViewMode = useEditorStore(s => s.setViewMode);
   const currentFile = useEditorStore(s => s.currentFile);
   const editorView = useEditorStore(s => s.editorView);
+  const language = useEditorStore(s => s.language);
+  const setLanguage = useEditorStore(s => s.setLanguage);
 
   const [showPathMenu, setShowPathMenu] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const modeButtons: { mode: ViewMode; label: string }[] = [
-    { mode: 'edit', label: '编辑' },
-    { mode: 'preview', label: '阅读' },
-    { mode: 'split', label: '分栏' },
+    { mode: 'edit', label: t(language, 'edit') },
+    { mode: 'preview', label: t(language, 'preview') },
+    { mode: 'split', label: t(language, 'split') },
   ];
+
+  // 语言切换（中文/英文），主进程会同步重建菜单
+  const toggleLanguage = () => {
+    const next: Lang = language === 'zh' ? 'en' : 'zh';
+    setLanguage(next);
+    window.electronAPI.setLanguage(next);
+  };
 
   // 文件名过长时中间截断：前7字…后7字（保留扩展名）
   const truncateMiddle = (name: string, max = 15): string => {
@@ -92,25 +102,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="toolbar" onClick={handleClickAnywhere}>
       <div className="toolbar-section">
-        <button className="tb-btn" onClick={onNew} title="新建 (⌘N)">
+        <button className="tb-btn" onClick={onNew} title={`${t(language, 'new')} (⌘N)`}>
           <span className="tb-icon">📄</span>
-          <span className="tb-label">新建</span>
+          <span className="tb-label">{t(language, 'new')}</span>
         </button>
-        <button className="tb-btn" onClick={onOpen} title="打开 (⌘O)">
+        <button className="tb-btn" onClick={onOpen} title={`${t(language, 'open')} (⌘O)`}>
           <span className="tb-icon">📂</span>
-          <span className="tb-label">打开</span>
+          <span className="tb-label">{t(language, 'open')}</span>
         </button>
-        <button className="tb-btn" onClick={onSave} title="保存 (⌘S)">
+        <button className="tb-btn" onClick={onSave} title={`${t(language, 'save')} (⌘S)`}>
           <span className="tb-icon">💾</span>
-          <span className="tb-label">保存</span>
+          <span className="tb-label">{t(language, 'save')}</span>
         </button>
-        <button className="tb-btn" onClick={onSaveAs} title="另存为 (⇧⌘S)">
+        <button className="tb-btn" onClick={onSaveAs} title={`${t(language, 'saveAs')} (⇧⌘S)`}>
           <span className="tb-icon">📋</span>
-          <span className="tb-label">另存为</span>
+          <span className="tb-label">{t(language, 'saveAs')}</span>
         </button>
-        <button className="tb-btn tb-btn-danger" onClick={onClose} title="关闭 (⌘W)">
+        <button className="tb-btn tb-btn-danger" onClick={onClose} title={`${t(language, 'closeFile')} (⌘W)`}>
           <span className="tb-icon">✕</span>
-          <span className="tb-label">关闭</span>
+          <span className="tb-label">{t(language, 'closeFile')}</span>
         </button>
       </div>
 
@@ -151,10 +161,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             {showPathMenu && (
               <div className="path-menu">
                 <div className="path-menu-item" onClick={handleCopyFileName}>
-                  复制文件名
+                  {t(language, 'copyFileName')}
                 </div>
                 <div className="path-menu-item" onClick={handleCopyFullPath}>
-                  复制完整路径
+                  {t(language, 'copyFullPath')}
                 </div>
               </div>
             )}
@@ -165,31 +175,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="toolbar-spacer" />
 
       <div className="toolbar-section">
-        <button className="tb-btn" onClick={() => execEditorCommand('undo')} title="撤销 (⌘Z)">
+        <button className="tb-btn" onClick={() => execEditorCommand('undo')} title={`${t(language, 'undo')} (⌘Z)`}>
           <span className="tb-icon">↩</span>
         </button>
-        <button className="tb-btn" onClick={() => execEditorCommand('redo')} title="重做 (⇧⌘Z)">
+        <button className="tb-btn" onClick={() => execEditorCommand('redo')} title={`${t(language, 'redo')} (⇧⌘Z)`}>
           <span className="tb-icon">↪</span>
+        </button>
+        <button className="tb-btn" onClick={toggleLanguage} title={t(language, 'language')}>
+          <span className="tb-label">{language === 'zh' ? 'EN' : '中'}</span>
         </button>
       </div>
 
       <div className="toolbar-divider" />
 
       <div className="toolbar-section">
-        <button className="tb-btn" onClick={() => execEditorCommand('cut')} title="剪切 (⌘X)">
+        <button className="tb-btn" onClick={() => execEditorCommand('cut')} title={`${t(language, 'cut')} (⌘X)`}>
           <span className="tb-icon">✂️</span>
-          <span className="tb-label">剪切</span>
+          <span className="tb-label">{t(language, 'cut')}</span>
         </button>
-        <button className="tb-btn" onClick={() => execEditorCommand('copy')} title="复制 (⌘C)">
+        <button className="tb-btn" onClick={() => execEditorCommand('copy')} title={`${t(language, 'copy')} (⌘C)`}>
           <span className="tb-icon">📋</span>
-          <span className="tb-label">复制</span>
+          <span className="tb-label">{t(language, 'copy')}</span>
         </button>
-        <button className="tb-btn" onClick={() => execEditorCommand('paste')} title="粘贴 (⌘V)">
+        <button className="tb-btn" onClick={() => execEditorCommand('paste')} title={`${t(language, 'paste')} (⌘V)`}>
           <span className="tb-icon">📎</span>
-          <span className="tb-label">粘贴</span>
+          <span className="tb-label">{t(language, 'paste')}</span>
         </button>
-        <button className="tb-btn" onClick={() => execEditorCommand('selectAll')} title="全选 (⌘A)">
-          <span className="tb-label">全选</span>
+        <button className="tb-btn" onClick={() => execEditorCommand('selectAll')} title={`${t(language, 'selectAll')} (⌘A)`}>
+          <span className="tb-label">{t(language, 'selectAll')}</span>
         </button>
       </div>
     </div>

@@ -69,10 +69,9 @@ function App() {
   };
 
   const handleNew = async () => {
-    RendererLogger.info('App', 'Creating new file');
-    if (await canReplaceDocument()) {
-      resetEditor();
-    }
+    // 多窗口模型：新建 = 新开一个应用窗口并弹保存对话框（旧窗口原样保留）
+    RendererLogger.info('App', 'Requesting new window');
+    window.electronAPI.newWindow();
   };
 
   const handleOpen = async () => {
@@ -144,6 +143,11 @@ function App() {
       }
     });
 
+    // 恢复上次界面语言（SQLite 持久化）
+    void window.electronAPI.getLanguage().then((lang) => {
+      useEditorStore.getState().setLanguage(lang === 'en' ? 'en' : 'zh');
+    });
+
     const off1 = window.electronAPI.onFileOpened((file) => {
       RendererLogger.info('App', `File opened: ${file.path}`);
       void (async () => {
@@ -158,6 +162,9 @@ function App() {
     const off4 = window.electronAPI.onMenuSave(() => void handleSave());
     const off5 = window.electronAPI.onMenuSaveAs(() => void handleSaveAs());
     const off6 = window.electronAPI.onMenuCloseTab(() => void handleClose());
+
+    // 新建流程：新窗口就绪后弹保存对话框选新文件路径（取消则保留为空白未命名文档）
+    const off9 = window.electronAPI.onNewFilePrompt(() => void handleSaveAs());
 
     const off7 = window.electronAPI.onCheckUnsaved(async () => {
       return await checkUnsavedAndClose();
@@ -176,6 +183,7 @@ function App() {
       off6();
       off7();
       off8();
+      off9();
     };
   }, []);
 

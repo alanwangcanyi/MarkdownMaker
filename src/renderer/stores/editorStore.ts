@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { EditorView } from 'codemirror';
 import { ViewMode, FileMeta } from '../../shared/types';
+import { Lang } from '../../shared/i18n';
 
 interface EditorState {
   content: string;
@@ -10,12 +11,14 @@ interface EditorState {
   editorView: EditorView | null;
   lineCount: number;
   wordCount: number;
+  language: Lang;
   setContent: (content: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setCurrentFile: (file: FileMeta | null) => void;
   setEditorView: (view: EditorView | null) => void;
   setLineCount: (count: number) => void;
   setWordCount: (count: number) => void;
+  setLanguage: (lang: Lang) => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -26,6 +29,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   editorView: null,
   lineCount: 0,
   wordCount: 0,
+  language: 'zh',
   setContent: (content) => {
     const state = get();
     if (state.currentFile) {
@@ -57,4 +61,5 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditorView: (view) => set({ editorView: view }),
   setLineCount: (count) => set({ lineCount: count }),
   setWordCount: (count) => set({ wordCount: count }),
+  setLanguage: (lang) => set({ language: lang }),
 }));
