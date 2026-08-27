@@ -1,5 +1,6 @@
 appId: com.markdown-maker.app
 productName: Markdown Maker
+copyright: Copyright © 2026 alanwangcanyi
 npmRebuild: false
 directories:
   output: release

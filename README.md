@@ -106,3 +106,9 @@ npm run clean      # 清理 release/ 与 dist/
 ## 五、日志
 
 日志文件存储在 `~/Library/Logs/Markdown Maker/`，按天分割，自动保留最近 1 天。
+
+## 六、版权显示
+
+「关于」对话框版权行 = `Copyright © 2026 alanwangcanyi`，来源两处（保持同步修改）：
+- `electron-builder.yml` 的 `copyright`（写入 Info.plist 的 NSHumanReadableCopyright）
+- `src/main/index.ts` 的 `app.setAboutPanelOptions`（开发模式兜底）

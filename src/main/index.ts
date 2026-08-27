@@ -460,6 +460,9 @@ app.whenReady().then(() => {
   logger.init();
   logger.info('App', 'App starting');
 
+  // 「关于」对话框版权行（兜底：打包配置未生效的开发模式下同样显示）
+  app.setAboutPanelOptions({ copyright: 'Copyright © 2026 alanwangcanyi' });
+
   initDatabase();
   registerIpcHandlers();
   createMenu();
