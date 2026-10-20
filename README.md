@@ -104,7 +104,9 @@ npm run clean      # 清理 release/ 与 dist/
 - 归档目录：`20260506-MarkdownMaker-archive/`（项目建立日期 2026-05-06 - 项目名 - archive）
 - 命名规则：**四位递增编号-打包日期-产品名**，如 `0001-20260824-MarkdownMaker.app`
 - 每次编译后执行 `npm run pack:app` 或 `npm run archive` 自动归档，编号自动 +1
+- **只保留最新 5 个版本**，归档脚本（`scripts/archive.js` 的 pruneOldArchives）自动删除更旧的
 - 临时验证用的 app 在 `release/mac-arm64/Markdown Maker.app`（每次打包覆盖）
+- ⚠️ 归档目录里的 app **不要双击运行**（同 ID 未签名 app 会造成 macOS 路由混乱），查看历史版本用"右键 → 显示包内容"
 
 ## 五、日志
 

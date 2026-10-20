@@ -4,6 +4,7 @@
  * 规则：
  * - 归档目录：20260506-MarkdownMaker-archive（项目建立日期-项目名称-archive）
  * - 产物命名：四位递增编号-打包日期-产品名，如 0001-20260824-MarkdownMaker.app
+ * - 只保留最新 5 个版本，归档后自动删除更旧的
  *
  * 用法：npm run archive（在 npm run pack / electron-builder --dir 之后执行）
  */
@@ -52,6 +53,21 @@ function main() {
   // 必须用 ditto 复制 .app（保留符号链接/权限/元数据，cpSync 会损坏 bundle）
   execSync(`ditto "${APP_SOURCE}" "${dest}"`);
   console.log(`归档完成：${dest}`);
+
+  pruneOldArchives();
+}
+
+/** 只保留最新 KEEP_COUNT 个归档版本，删除更旧的 */
+function pruneOldArchives() {
+  const KEEP_COUNT = 5;
+  const entries = fs.readdirSync(ARCHIVE_DIR)
+    .filter((name) => /^\d{4}-/.test(name))
+    .sort();
+  const toDelete = entries.slice(0, Math.max(0, entries.length - KEEP_COUNT));
+  for (const name of toDelete) {
+    fs.rmSync(path.join(ARCHIVE_DIR, name), { recursive: true, force: true });
+    console.log(`已清理旧版本：${name}`);
+  }
 }
 
 main();
