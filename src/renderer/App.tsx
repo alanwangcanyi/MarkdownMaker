@@ -5,12 +5,28 @@ import { StatusBar } from './components/Layout/StatusBar';
 import { MarkdownEditor } from './components/Editor/MarkdownEditor';
 import { MarkdownPreview } from './components/Preview/MarkdownPreview';
 import { RendererLogger } from './utils/logger';
+import { selectDocument } from './utils/selectDocument';
 import './styles/global.css';
 
 type LoadedFile = { path: string; content: string; name: string };
 type UnsavedChoice = 'save' | 'discard' | 'cancel';
 
 function App() {
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onMenuSelectAll(selectDocument);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        selectDocument();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, []);
+
   const viewMode = useEditorStore(s => s.viewMode);
   const setContent = useEditorStore(s => s.setContent);
   const setCurrentFile = useEditorStore(s => s.setCurrentFile);
@@ -74,11 +90,22 @@ function App() {
     window.electronAPI.newWindow();
   };
 
+  /** 当前窗口是否为空白未命名（可直接加载文件，无需新开窗口） */
+  const isBlankDocument = () => {
+    const { content, currentFile } = useEditorStore.getState();
+    return !currentFile && content.trim() === '';
+  };
+
   const handleOpen = async () => {
     RendererLogger.info('App', 'Opening file');
     const file = await window.electronAPI.openFile();
-    if (file && await canReplaceDocument()) {
+    if (!file) return;
+    if (isBlankDocument()) {
       loadFileIntoEditor(file);
+    } else {
+      // Word 式打开：当前窗口已有文档 → 新窗口加载，本窗口原样不动
+      RendererLogger.info('App', `Opening in new window: ${file.path}`);
+      window.electronAPI.openFileInNewWindow(file.path);
     }
   };
 
@@ -150,11 +177,12 @@ function App() {
 
     const off1 = window.electronAPI.onFileOpened((file) => {
       RendererLogger.info('App', `File opened: ${file.path}`);
-      void (async () => {
-        if (await canReplaceDocument()) {
-          loadFileIntoEditor(file);
-        }
-      })();
+      if (isBlankDocument()) {
+        loadFileIntoEditor(file);
+      } else {
+        // Word 式打开：本窗口已有文档 → 转新窗口加载（新窗口空白，收到后直接加载，无循环）
+        window.electronAPI.openFileInNewWindow(file.path);
+      }
     });
 
     const off2 = window.electronAPI.onMenuNew(() => void handleNew());

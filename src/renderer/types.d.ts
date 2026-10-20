@@ -14,7 +14,9 @@ export interface ElectronAPI {
   onMenuSave: (callback: () => void) => () => void;
   onMenuSaveAs: (callback: () => void) => () => void;
   onMenuCloseTab: (callback: () => void) => () => void;
+  onMenuSelectAll: (callback: () => void) => () => void;
   newWindow: () => void;
+  openFileInNewWindow: (filePath: string) => void;
   onNewFilePrompt: (callback: () => void) => () => void;
   appReady: () => void;
   getViewMode: () => Promise<string | null>;

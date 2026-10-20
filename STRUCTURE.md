@@ -114,6 +114,7 @@ markdown-maker/
 | app:get-language / app:set-language | 双向 | 界面语言读取/切换（切换时主进程重建菜单） |
 | window:new | renderer → main | 请求新开一个应用窗口（新建流程入口） |
 | new-file-prompt | main → renderer | 新窗口就绪后触发弹保存对话框选新文件路径 |
+| window:open-file | renderer → main | 请求新开窗口加载指定路径文件（Word 式打开） |
 | log | renderer → main | 日志转发到主进程 |
 
 ## 三、关键流程

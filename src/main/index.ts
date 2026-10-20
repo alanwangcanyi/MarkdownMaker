@@ -262,6 +262,20 @@ function registerIpcHandlers() {
     createWindow({ promptSaveAs: true });
   });
 
+  // Word 式打开：新开窗口加载指定文件（当前窗口已有文档时由渲染进程请求）
+  ipcMain.on('window:open-file', (_event, filePath: string) => {
+    try {
+      logger.info('IPC', `Open file in new window: ${filePath}`);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const file = { path: filePath, content, name: path.basename(filePath) };
+      createWindow();
+      // 新窗口渲染就绪后由 app:ready 处理器带出（recents 亦由 sendFileToWindow 记录）
+      pendingFile = file;
+    } catch (err: any) {
+      logger.error('IPC', `Failed to open file in new window: ${err.message}`);
+    }
+  });
+
   ipcMain.on('app:ready', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
@@ -431,7 +445,11 @@ function createMenu() {
         { role: 'cut', label: t(lang, 'cut') },
         { role: 'copy', label: t(lang, 'copy') },
         { role: 'paste', label: t(lang, 'paste') },
-        { role: 'selectAll', label: t(lang, 'selectAll') },
+        {
+          label: t(lang, 'selectAll'),
+          accelerator: 'CmdOrCtrl+A',
+          click: () => sendToFocused('menu:select-all'),
+        },
       ],
     },
   ];

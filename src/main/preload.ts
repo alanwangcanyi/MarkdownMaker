@@ -67,7 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('menu:close-tab', listener);
     return () => ipcRenderer.removeListener('menu:close-tab', listener);
   },
+  onMenuSelectAll: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:select-all', listener);
+    return () => ipcRenderer.removeListener('menu:select-all', listener);
+  },
   newWindow: () => ipcRenderer.send('window:new'),
+  openFileInNewWindow: (filePath: string) => ipcRenderer.send('window:open-file', filePath),
   onNewFilePrompt: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on('new-file-prompt', listener);
