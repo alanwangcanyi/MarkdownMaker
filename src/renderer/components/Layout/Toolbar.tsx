@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { redo, selectAll, undo } from '@codemirror/commands';
+import { redo, undo } from '@codemirror/commands';
+import { selectDocument } from '../../utils/selectDocument';
 import { useEditorStore } from '../../stores/editorStore';
 import { ViewMode } from '../../../shared/types';
 import { t, Lang } from '../../../shared/i18n';
@@ -70,7 +71,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   };
 
-  const execEditorCommand = (cmd: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
+  const execEditorCommand = (cmd: 'undo' | 'redo' | 'cut' | 'copy' | 'paste') => {
     if (!editorView) return;
     editorView.focus();
 
@@ -84,8 +85,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       document.execCommand('copy');
     } else if (cmd === 'paste') {
       document.execCommand('paste');
-    } else if (cmd === 'selectAll') {
-      selectAll(editorView);
     }
   };
 
@@ -201,7 +200,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span className="tb-icon">📎</span>
           <span className="tb-label">{t(language, 'paste')}</span>
         </button>
-        <button className="tb-btn" onClick={() => execEditorCommand('selectAll')} title={`${t(language, 'selectAll')} (⌘A)`}>
+        <button className="tb-btn" onMouseDown={event => event.preventDefault()} onClick={selectDocument} title={`${t(language, 'selectAll')} (⌘A)`}>
           <span className="tb-label">{t(language, 'selectAll')}</span>
         </button>
       </div>
